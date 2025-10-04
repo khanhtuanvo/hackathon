@@ -1,3 +1,6 @@
+# add at the top
+import shutil
+from typing import Optional
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -108,18 +111,50 @@ def find_dict_spans(text: str) -> List[Span]:
     return non_overlap
 
 
-def extract_text_from_upload(tmp_path: Path) -> str:
-    suf = tmp_path.suffix.lower()
-    if suf in (".txt", ".md", ".csv"):
+def extract_text_from_upload(
+    tmp_path: Path,
+    original_filename: Optional[str] = None,
+    content_type: Optional[str] = None,
+) -> str:
+    """
+    Decide how to read the file using:
+    1) the temp file's suffix,
+    2) or the original filename's suffix,
+    3) or (last resort) the MIME type.
+    """
+    suffix = (tmp_path.suffix or "").lower()
+
+    if not suffix and original_filename:
+        suffix = (Path(original_filename).suffix or "").lower()
+
+    if not suffix and content_type:
+        # minimal MIME mapping
+        if content_type == "text/plain":
+            suffix = ".txt"
+        elif content_type in (
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/msword",
+        ):
+            suffix = ".docx"
+
+    if suffix in (".txt", ".md", ".csv"):
         return tmp_path.read_text(encoding="utf-8", errors="ignore")
-    if suf == ".docx":
+
+    if suffix == ".docx":
         try:
-            import docx
+            import docx  # python-docx
         except Exception:
-            raise HTTPException(status_code=400, detail=".docx support not installed; remove python-docx or install it")
+            raise HTTPException(
+                status_code=500,
+                detail="python-docx not installed. Run: pip install python-docx",
+            )
         d = docx.Document(str(tmp_path))
         return "\n".join(p.text for p in d.paragraphs)
-    raise HTTPException(status_code=400, detail=f"Unsupported file type: {suf}. Use .txt or .docx for this MVP.")
+
+    raise HTTPException(
+        status_code=400,
+        detail=f"Unsupported file type: {suffix or '(unknown)'} . Use .txt or .docx for this MVP.",
+    )
 
 # -------------------------------
 # FastAPI app
@@ -147,16 +182,27 @@ async def extract_terms(req: ExtractRequest):
 
 @app.post("/v1/extract_terms_upload", response_model=ExtractResponse)
 async def extract_terms_upload(file: UploadFile = File(...)):
-    with NamedTemporaryFile(delete=False) as tmp:
-        tmp.write(await file.read())
+    # keep the original extension (e.g., ".docx") so .suffix works
+    orig_suffix = (Path(file.filename or "").suffix or "").lower()
+
+    with NamedTemporaryFile(delete=False, suffix=orig_suffix) as tmp:
+        # robust copy (handles large files)
+        file.file.seek(0)
+        shutil.copyfileobj(file.file, tmp)
         tmp_path = Path(tmp.name)
+
     try:
-        raw = extract_text_from_upload(tmp_path)
+        raw = extract_text_from_upload(
+            tmp_path,
+            original_filename=file.filename,
+            content_type=file.content_type,
+        )
     finally:
         try:
             tmp_path.unlink()
         except Exception:
             pass
+
     text = normalize(raw)
     spans = find_dict_spans(text)
     return ExtractResponse(original_text=text, spans=spans)
