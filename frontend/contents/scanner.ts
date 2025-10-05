@@ -1,5 +1,4 @@
 import { Readability } from "@mozilla/readability";
-// contents/scanner.ts
 
 export const config = {
   matches: ["<all_urls>"],
@@ -8,24 +7,55 @@ export const config = {
 
 let isEnabled = false;
 
-// in contents/scanner.ts
+function getArticleContent(): string {
+  const documentClone = document.cloneNode(true) as Document;
+  
+  // Remove ad elements BEFORE Readability parses
+  const adSelectors = [
+    '[class*="ad-"]',
+    '[id*="ad-"]',
+    '[class*="advertisement"]',
+    '.sponsored',
+    '.promo',
+    '[data-ad]',
+    'iframe[src*="doubleclick"]',
+    'iframe[src*="googlesyndication"]',
+    '.ad',
+    '.ads',
+    '[class*="sidebar"]',
+    '[class*="related-posts"]'
+  ];
+  
+  adSelectors.forEach(selector => {
+    documentClone.querySelectorAll(selector).forEach(el => el.remove());
+  });
+  
+  const reader = new Readability(documentClone);
+  const article = reader.parse();
 
-function highlightJargon(terms: any[], descriptions: string[]) {
-  console.log("Attempting to highlight terms:", terms);
-
-  if (!terms || terms.length === 0) {
-    return; // Do nothing if there are no terms
+  if (article && article.textContent) {
+    return article.textContent.trim();
   }
 
-  // Helper to escape special characters for use in a RegExp
+  console.warn("Readability.js failed, falling back to body.innerText");
+  return document.body.innerText || "";
+}
+
+function highlightJargon(terms: any[], descriptions: string[]) {
+  console.log("Highlighting terms:", terms);
+
+  if (!terms || terms.length === 0) return;
+
   const escapeRegex = (str: string) => {
     return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   };
 
+  // Skip highlighting inside ads/unwanted sections
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
     acceptNode: (node) => {
-      // Don't search inside scripts, styles, or already highlighted spans
-      if (node.parentElement.closest('script, style, .jargon-highlight')) {
+      const parent = node.parentElement;
+      // Reject nodes inside ads, scripts, styles, or already highlighted
+      if (parent?.closest('script, style, .jargon-highlight, [class*="ad-"], [id*="ad-"], .advertisement, .sponsored')) {
         return NodeFilter.FILTER_REJECT;
       }
       return NodeFilter.FILTER_ACCEPT;
@@ -43,7 +73,6 @@ function highlightJargon(terms: any[], descriptions: string[]) {
     descriptionMap.set(t.term.toLowerCase(), descriptions[i]);
   });
   
-  // Build a single, case-insensitive regex to find any of the terms
   const allTermsRegex = new RegExp(
     sortedTerms.map(t => `\\b(${escapeRegex(t.term)})\\b`).join('|'), 
     'gi'
@@ -59,16 +88,13 @@ function highlightJargon(terms: any[], descriptions: string[]) {
     const fragment = document.createDocumentFragment();
     let lastIndex = 0;
 
-    // Use replace with a callback to build up our new nodes
     content.replace(allTermsRegex, (match, ...args) => {
       const offset = args[args.length - 2];
       
-      // Add the text before the match
       if (offset > lastIndex) {
         fragment.appendChild(document.createTextNode(content.substring(lastIndex, offset)));
       }
 
-      // Create and add the highlight span
       const span = document.createElement('span');
       span.className = 'jargon-highlight';
       span.textContent = match;
@@ -79,39 +105,12 @@ function highlightJargon(terms: any[], descriptions: string[]) {
       return match; 
     });
 
-    // Add any text remaining after the last match
     if (lastIndex < content.length) {
       fragment.appendChild(document.createTextNode(content.substring(lastIndex)));
     }
     
-    // Replace the original text node with our fragment containing highlights
     parent.replaceChild(fragment, node);
   });
-}
-
-// --- Your original functions (they are good) ---
-
-// in contents/scanner.ts
-
-function getArticleContent(): string {
-  /*
-   * This function uses Mozilla's Readability library to find the main
-   * content of the page, stripping out ads, nav bars, and other clutter.
-   * It clones the document first so the original page is not modified.
-  */
-  const documentClone = document.cloneNode(true) as Document;
-  const reader = new Readability(documentClone);
-  const article = reader.parse();
-
-  // The 'article' object contains the clean title, content, textContent, etc.
-  // We return the clean text content.
-  if (article && article.textContent) {
-    return article.textContent.trim();
-  }
-
-  // Fallback to the simple method if Readability fails for any reason
-  console.warn("Readability.js failed to parse the article, falling back to body.innerText");
-  return document.body.innerText || "";
 }
 
 async function sendToBackend(content: string) {
@@ -124,28 +123,25 @@ async function sendToBackend(content: string) {
     });
     
     if (response.ok) {
-      console.log('✅ Content sent successfully');
+      console.log('Content sent successfully');
       const data = await response.json();
       if (data.terms && data.descriptions) {
         highlightJargon(data.terms, data.descriptions);
-
       }
     } else {
-      console.error('❌ Failed to send content:', await response.text());
+      console.error('Failed to send content:', await response.text());
     }
   } catch (error) {
-    console.error('❌ Error:', error);
+    console.error('Error:', error);
   }
 }
 
 async function scanPage() {
   if (isEnabled) {
-    console.log('📄 Scanning page:', window.location.href);
+    console.log('Scanning page:', window.location.href);
     const content = getArticleContent();
-    
-    if (content.length > 100) {
-      await sendToBackend(content);
-    }
+    console.log(content);
+    await sendToBackend(content);
   }
 }
 
@@ -153,10 +149,10 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message.action === 'toggleScanning') {
     isEnabled = message.enabled;
     if (isEnabled) {
-      console.log('🔄 Scanning enabled, scanning current page...');
+      console.log('Scanning enabled, scanning current page...');
       scanPage();
     } else {
-      console.log('⏸️ Scanning disabled. Reload page to remove highlights.');
+      console.log('Scanning disabled. Reload page to remove highlights.');
     }
   }
 });
