@@ -2,7 +2,6 @@
 
 Detect medical jargon while you read any article and get simple explanations—right on the page.
 
-- **Model:** NLP pipeline with **TF-IDF + Linear SVM**
 - **Targets:** Medical-domain terms (e.g., diseases, procedures, signs/symptoms, medications)
 - **Extension:** Highlights jargon in webpages and shows tooltips/popovers with plain-language explanations
 - **Backend (optional):** FastAPI endpoint for inference & definitions; or **fully offline** via exported model weights
