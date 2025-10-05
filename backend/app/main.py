@@ -3,9 +3,9 @@ import shutil
 from typing import Optional
 from .services.medlineplus import (
     medlineplus_search,
-    medlineplus_connect,
-    explain_span,
-    enrich_spans_with_medlineplus,
+)
+from .services.jargon_detection import (
+    detect_medical_jargon
 )
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
@@ -181,26 +181,6 @@ app.add_middleware(
 def health():
     return {"ok": True}
 
-@app.post("/v1/extract_terms", response_model=ExtractResponse)
-async def extract_terms(req: ExtractRequest):
-    if not req.text or not req.text.strip():
-        raise HTTPException(status_code=400, detail="Empty text")
-    text = normalize(req.text)
-    raw_spans = [s.model_dump() for s in find_dict_spans(text)]  # pydantic v2: model_dump
-    enriched = await enrich_spans_with_medlineplus(raw_spans, lang="en")
-    # rebuild Span objects (keeps medlineplus field)
-    typed_spans = [Span(**s) for s in enriched]
-    return ExtractResponse(original_text=text, spans=typed_spans)
-
-# @app.post("/v1/extract_terms_upload", response_model=ExtractResponse)
-# async def extract_terms_upload(file: UploadFile = File(...)):
-#     # ... your existing temp-file logic (with suffix fix) ...
-#     text = normalize(raw)
-#     raw_spans = [s.model_dump() for s in find_dict_spans(text)]
-#     enriched = await enrich_spans_with_medlineplus(raw_spans, lang="en")
-#     typed_spans = [Span(**s) for s in enriched]
-#     return ExtractResponse(original_text=text, spans=typed_spans)
-
 @app.post("/v1/extract_terms_upload", response_model=ExtractResponse)
 async def extract_terms_upload(file: UploadFile = File(...)):
     orig_suffix = (Path(file.filename or "").suffix or "").lower()
@@ -235,16 +215,12 @@ async def mp_search(term: str = Query(...), lang: str = "en"):
     hit = await medlineplus_search(term, lang="es" if lang == "es" else "en")
     return {"term": term, "lang": lang, "result": hit}
 
-@app.get("/v1/mp/connect")
-async def mp_connect(code_system: str, code: str, lang: str = "en"):
-    """Code (e.g., SNOMEDCT/ICD10CM/RXCUI/LOINC) -> MedlinePlus topic"""
-    hit = await medlineplus_connect(code_system, code, lang="es" if lang == "es" else "en")
-    return {"code_system": code_system, "code": code, "lang": lang, "result": hit}
+@app.get("/jargon/detect")
+async def detect_jargon(text: str):
+    jargon_result = detect_medical_jargon(text)
+    N = len(jargon_result)
 
-@app.get("/v1/mp/explain")
-async def mp_explain(term: str, code: Optional[str] = None,
-                     code_system: Optional[str] = None, lang: str = "en"):
-    """Try Connect (if code provided) then fallback to keyword search."""
-    hit = await explain_span(term, lang="es" if lang == "es" else "en",
-                             code=code, code_system=code_system)
-    return {"term": term, "code": code, "code_system": code_system, "lang": lang, "result": hit}
+
+    return {
+        
+    }
