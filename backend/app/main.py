@@ -138,50 +138,6 @@ def find_dict_spans(text: str) -> List[Span]:
     return non_overlap
 
 
-def extract_text_from_upload(
-    tmp_path: Path,
-    original_filename: Optional[str] = None,
-    content_type: Optional[str] = None,
-) -> str:
-    """
-    Decide how to read the file using:
-    1) the temp file's suffix,
-    2) or the original filename's suffix,
-    3) or (last resort) the MIME type.
-    """
-    suffix = (tmp_path.suffix or "").lower()
-
-    if not suffix and original_filename:
-        suffix = (Path(original_filename).suffix or "").lower()
-
-    if not suffix and content_type:
-        # minimal MIME mapping
-        if content_type == "text/plain":
-            suffix = ".txt"
-        elif content_type in (
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "application/msword",
-        ):
-            suffix = ".docx"
-
-    if suffix in (".txt", ".md", ".csv"):
-        return tmp_path.read_text(encoding="utf-8", errors="ignore")
-
-    if suffix == ".docx":
-        try:
-            import docx  # python-docx
-        except Exception:
-            raise HTTPException(
-                status_code=500,
-                detail="python-docx not installed. Run: pip install python-docx",
-            )
-        d = docx.Document(str(tmp_path))
-        return "\n".join(p.text for p in d.paragraphs)
-
-    raise HTTPException(
-        status_code=400,
-        detail=f"Unsupported file type: {suffix or '(unknown)'} . Use .txt or .docx for this MVP.",
-    )
 
 # -------------------------------
 # FastAPI app
@@ -227,7 +183,6 @@ def health():
 #     return ExtractResponse(original_text=text, spans=typed_spans)
 
 
-@app.get("/v1/mp/search")
 async def mp_search(terms: list[str] = Query(...), lang: str = "en") -> list[str]:
     """Keyword -> MedlinePlus Health Topic"""
     hits = await medlineplus_search(terms, lang="es" if lang == "es" else "en")
@@ -270,6 +225,8 @@ async def mp_search(terms: list[str] = Query(...), lang: str = "en") -> list[str
 @app.post("/execute")
 async def execute(text: str):
     jargon_result = detect_medical_jargon(text)
-    
-    for jargon in jargon_result:
-        term = jargon["term"]
+    description = mp_search(jargon_result)
+    return {
+        "terms": jargon_result,
+        "description": description
+    }
