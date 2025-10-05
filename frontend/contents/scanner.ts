@@ -5,6 +5,9 @@ export const config = {
   run_at: "document_end"
 }
 
+// CHANGED: Move isEnabled to top-level scope (outside functions)
+let isEnabled = false;
+
 // Get page content safely
 function getPageContent(): string {
   if (!document.body) return ""
@@ -57,27 +60,28 @@ async function sendToBackend(content: string) {
   }
 }
 
-// Main scanning logic - only runs if extension is enabled
-function scanPage() {
-  chrome.storage.local.get(['isEnabled'], async (result) => {
-    if (result.isEnabled) {
-      console.log('📄 Scanning page:', window.location.href)
-      const content = getArticleContent()
-      
-      if (content.length > 100) { // Only send if there's meaningful content
-        await sendToBackend(content)
-      }
+// CHANGED: Simplified - just scans if enabled
+async function scanPage() {
+  if (isEnabled) {
+    console.log('📄 Scanning page:', window.location.href)
+    const content = getArticleContent()
+    
+    if (content.length > 100) {
+      await sendToBackend(content)
     }
-  })
+  }
 }
 
-// Run scan on page load
-scanPage()
-
-// Listen for extension being toggled on
-chrome.storage.onChanged.addListener((changes) => {
-  if (changes.isEnabled?.newValue === true) {
-    console.log('🔄 Extension enabled, scanning current page...')
-    scanPage()
+// CHANGED: Listen for toggle messages from popup (moved outside scanPage)
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.action === 'toggleScanning') {
+    isEnabled = message.enabled;
+    
+    if (isEnabled) {
+      console.log('🔄 Scanning enabled, scanning current page...');
+      scanPage();
+    } else {
+      console.log('⏸️ Scanning disabled');
+    }
   }
-})
+});

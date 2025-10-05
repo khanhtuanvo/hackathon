@@ -3,25 +3,12 @@ import React, { useState, useEffect } from 'react';
 import { Settings, ChevronDown, ChevronUp } from 'lucide-react';
 
 export default function Popup() {
-  const [isEnabled, setIsEnabled] = useState(true);
+  // CHANGED: Default to false instead of true
+  const [isEnabled, setIsEnabled] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [autoScan, setAutoScan] = useState(true);
   const [option2, setOption2] = useState(false);
   const [option3, setOption3] = useState(false);
-
-  useEffect(() => {
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-      chrome.storage.local.get(['isEnabled'], (result) => {
-        if (result.isEnabled !== undefined) setIsEnabled(result.isEnabled);
-      });
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-      chrome.storage.local.set({ isEnabled });
-    }
-  }, [isEnabled]);
 
   return (
     <div className="w-full h-full min-w-[400px] bg-gradient-to-br from-blue-50 to-indigo-50 font-sans flex flex-col">
@@ -100,7 +87,23 @@ export default function Popup() {
               </p>
             </div>
             <button
-              onClick={() => setIsEnabled(!isEnabled)}
+              // onClick={() => setIsEnabled(!isEnabled)}
+              onClick={() => {
+                const newState = !isEnabled;
+                setIsEnabled(newState);
+                
+                // Send message to all tabs
+                chrome.tabs.query({}, (tabs) => {
+                  tabs.forEach(tab => {
+                    if (tab.id) {
+                      chrome.tabs.sendMessage(tab.id, {
+                        action: 'toggleScanning',
+                        enabled: newState
+                      }).catch(() => {});
+                    }
+                  });
+                });
+              }}
               className={`relative w-14 h-7 rounded-full transition-colors duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 ${
                 isEnabled
                   ? 'bg-gradient-to-r from-blue-500 to-indigo-500 focus:ring-blue-400'
