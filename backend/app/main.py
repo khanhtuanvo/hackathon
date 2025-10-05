@@ -240,7 +240,7 @@ async def mp_search(terms: list[str], lang: str = "en") -> list[str]:
     hits = await medlineplus_search(terms, lang="es" if lang == "es" else "en")
 
     # 2. Create a list of all the OpenAI explanation tasks
-    tasks = [get_simplified_explanation(term, hit) for term, hit in zip(terms, hits)]
+    tasks = [get_simplified_explanation(term, hit) for term, hit in zip(terms, hits) if hit != "Error"]
 
     # 3. Run all OpenAI tasks concurrently and wait for them to finish
     descriptions = await asyncio.gather(*tasks)
@@ -262,6 +262,7 @@ async def get_simplified_explanation(term: str, context: Optional[dict]) -> str:
         - Term to Explain: "{term}"
         - Full Context: "{context_text}"
 
+        If the {term} is not a medical jargon or health related jargon then return "Error"
         Please provide a brief, simple explanation of the term. Use a relatable analogy if it helps.
         Focus only on explaining the term itself."""
     try:
