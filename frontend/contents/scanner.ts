@@ -7,6 +7,15 @@ export const config = {
 };
 
 let isEnabled = false;
+let activeTooltip: HTMLElement | null = null;
+
+// Check if scanning should be enabled on page load
+chrome.storage.local.get(['scanningEnabled'], (result) => {
+  if (result.scanningEnabled) {
+    isEnabled = true;
+    scanPage();
+  }
+});
 
 function getArticleContent(): string {
   const documentClone = document.cloneNode(true) as Document;
@@ -89,6 +98,60 @@ function getArticleContent(): string {
   return document.body.innerText || "";
 }
 
+function createTooltip(description: string, targetElement: HTMLElement): HTMLElement {
+  const tooltip = document.createElement('div');
+  tooltip.className = 'jargon-tooltip';
+  tooltip.innerHTML = `
+    <div class="jargon-tooltip-content">
+      <button class="jargon-tooltip-close">&times;</button>
+      <p>${description}</p>
+    </div>
+  `;
+  
+  document.body.appendChild(tooltip);
+  
+  // Position the tooltip
+  positionTooltip(tooltip, targetElement);
+  
+  // Close button handler
+  const closeBtn = tooltip.querySelector('.jargon-tooltip-close');
+  closeBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    removeTooltip();
+  });
+  
+  return tooltip;
+}
+
+function positionTooltip(tooltip: HTMLElement, targetElement: HTMLElement) {
+  const rect = targetElement.getBoundingClientRect();
+  const tooltipRect = tooltip.getBoundingClientRect();
+  
+  // Calculate position (below the element by default)
+  let top = rect.bottom + window.scrollY + 5;
+  let left = rect.left + window.scrollX;
+  
+  // Adjust if tooltip would go off-screen
+  if (left + tooltipRect.width > window.innerWidth) {
+    left = window.innerWidth - tooltipRect.width - 10;
+  }
+  
+  if (top + tooltipRect.height > window.innerHeight + window.scrollY) {
+    // Position above if not enough space below
+    top = rect.top + window.scrollY - tooltipRect.height - 5;
+  }
+  
+  tooltip.style.top = `${top}px`;
+  tooltip.style.left = `${left}px`;
+}
+
+function removeTooltip() {
+  if (activeTooltip) {
+    activeTooltip.remove();
+    activeTooltip = null;
+  }
+}
+
 function highlightJargon(terms: any[], descriptions: string[]) {
   console.log("Highlighting terms:", terms);
 
@@ -145,7 +208,17 @@ function highlightJargon(terms: any[], descriptions: string[]) {
       const span = document.createElement('span');
       span.className = 'jargon-highlight';
       span.textContent = match;
-      span.title = descriptionMap.get(match.toLowerCase()) || "No description available.";
+      const description = descriptionMap.get(match.toLowerCase()) || "No description available.";
+      span.setAttribute('data-description', description);
+      span.title = "Click for more information";
+      
+      // Add click event listener
+      span.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeTooltip(); // Remove any existing tooltip
+        activeTooltip = createTooltip(description, span);
+      });
+      
       fragment.appendChild(span);
 
       lastIndex = offset + match.length;
@@ -157,6 +230,13 @@ function highlightJargon(terms: any[], descriptions: string[]) {
     }
     
     parent.replaceChild(fragment, node);
+  });
+  
+  // Close tooltip when clicking outside
+  document.addEventListener('click', (e) => {
+    if (activeTooltip && !(e.target as HTMLElement).closest('.jargon-tooltip, .jargon-highlight')) {
+      removeTooltip();
+    }
   });
 }
 
@@ -203,6 +283,7 @@ chrome.runtime.onMessage.addListener((message) => {
       scanPage();
     } else {
       console.log('Scanning disabled. Reload page to remove highlights.');
+      removeTooltip(); // Clean up any open tooltips
     }
   }
 });

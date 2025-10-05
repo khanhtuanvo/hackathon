@@ -2,13 +2,40 @@ import "~style.css";
 import React, { useState, useEffect } from 'react';
 import { Settings, ChevronDown, ChevronUp } from 'lucide-react';
 
+
 export default function Popup() {
-  // CHANGED: Default to false instead of true
   const [isEnabled, setIsEnabled] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [autoScan, setAutoScan] = useState(true);
-  const [option2, setOption2] = useState(false);
-  const [option3, setOption3] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Load the saved state when popup opens
+  useEffect(() => {
+    chrome.storage.local.get(['scanningEnabled'], (result) => {
+      setIsEnabled(result.scanningEnabled || false);
+      setIsLoading(false);
+    });
+  }, []);
+
+  const handleToggle = async () => {
+    const newState = !isEnabled;
+    setIsEnabled(newState);
+    
+    // Save state to Chrome storage
+    await chrome.storage.local.set({ scanningEnabled: newState });
+    
+    // Send message to all tabs
+    chrome.tabs.query({}, (tabs) => {
+      tabs.forEach(tab => {
+        if (tab.id) {
+          chrome.tabs.sendMessage(tab.id, {
+            action: 'toggleScanning',
+            enabled: newState
+          }).catch(() => {
+            // Ignore errors for tabs that don't have the content script
+          });
+        }
+      });
+    });
+  };
 
   return (
     <div className="w-full h-full min-w-[400px] bg-gradient-to-br from-blue-50 to-indigo-50 font-sans flex flex-col">
@@ -83,32 +110,17 @@ export default function Popup() {
             <div>
               <h3 className="font-semibold text-gray-800">Extension Status</h3>
               <p className="text-sm text-gray-500 mt-0.5">
-                {isEnabled ? 'Active' : 'Inactive'}
+                {isLoading ? 'Loading...' : (isEnabled ? 'Active' : 'Inactive')}
               </p>
             </div>
             <button
-              // onClick={() => setIsEnabled(!isEnabled)}
-              onClick={() => {
-                const newState = !isEnabled;
-                setIsEnabled(newState);
-                
-                // Send message to all tabs
-                chrome.tabs.query({}, (tabs) => {
-                  tabs.forEach(tab => {
-                    if (tab.id) {
-                      chrome.tabs.sendMessage(tab.id, {
-                        action: 'toggleScanning',
-                        enabled: newState
-                      }).catch(() => {});
-                    }
-                  });
-                });
-              }}
+              onClick={handleToggle}
+              disabled={isLoading}
               className={`relative w-14 h-7 rounded-full transition-colors duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 ${
                 isEnabled
                   ? 'bg-gradient-to-r from-blue-500 to-indigo-500 focus:ring-blue-400'
                   : 'bg-gray-300 focus:ring-gray-400'
-              }`}
+              } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <span
                 className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow-md transform transition-transform duration-300 ease-in-out ${
@@ -119,118 +131,16 @@ export default function Popup() {
           </div>
         </div>
 
-        {/* Customization Section */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <button
-            onClick={() => setShowSettings(!showSettings)}
-            className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <Settings className="w-5 h-5 text-blue-600" />
-              <span className="font-semibold text-gray-800">Customization</span>
-            </div>
-            {showSettings ? (
-              <ChevronUp className="w-5 h-5 text-gray-400" />
-            ) : (
-              <ChevronDown className="w-5 h-5 text-gray-400" />
-            )}
-          </button>
-
-          {/* Settings Options */}
-          {showSettings && (
-            <div className="border-t border-gray-100 p-4 space-y-3 bg-gray-50">
-              {/* Auto Scan */}
-              <div className="flex items-center justify-between py-2">
-                <div className="flex-1">
-                  <label htmlFor="autoScan" className="font-medium text-gray-700 text-sm cursor-pointer">
-                    Auto Scan
-                  </label>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    Automatically scan pages for medical terms
-                  </p>
-                </div>
-                <button
-                  id="autoScan"
-                  onClick={() => setAutoScan(!autoScan)}
-                  className={`relative w-11 h-6 rounded-full transition-colors duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 ml-3 flex-shrink-0 ${
-                    autoScan
-                      ? 'bg-blue-500 focus:ring-blue-400'
-                      : 'bg-gray-300 focus:ring-gray-400'
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transform transition-transform duration-300 ease-in-out ${
-                      autoScan ? 'translate-x-5' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
-              </div>
-
-              {/* Option 2 */}
-              <div className="flex items-center justify-between py-2">
-                <div className="flex-1">
-                  <label htmlFor="option2" className="font-medium text-gray-700 text-sm cursor-pointer">
-                    Option 2
-                  </label>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    Description for option 2
-                  </p>
-                </div>
-                <button
-                  id="option2"
-                  onClick={() => setOption2(!option2)}
-                  className={`relative w-11 h-6 rounded-full transition-colors duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 ml-3 flex-shrink-0 ${
-                    option2
-                      ? 'bg-blue-500 focus:ring-blue-400'
-                      : 'bg-gray-300 focus:ring-gray-400'
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transform transition-transform duration-300 ease-in-out ${
-                      option2 ? 'translate-x-5' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
-              </div>
-
-              {/* Option 3 */}
-              <div className="flex items-center justify-between py-2">
-                <div className="flex-1">
-                  <label htmlFor="option3" className="font-medium text-gray-700 text-sm cursor-pointer">
-                    Option 3
-                  </label>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    Description for option 3
-                  </p>
-                </div>
-                <button
-                  id="option3"
-                  onClick={() => setOption3(!option3)}
-                  className={`relative w-11 h-6 rounded-full transition-colors duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 ml-3 flex-shrink-0 ${
-                    option3
-                      ? 'bg-blue-500 focus:ring-blue-400'
-                      : 'bg-gray-300 focus:ring-gray-400'
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transform transition-transform duration-300 ease-in-out ${
-                      option3 ? 'translate-x-5' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+        
 
         {/* View Docs Button */}
         <a
-          href="https://docs.example.com"
+          href="https://github.com/khanhtuanvo/hackathon"
           target="_blank"
           rel="noopener noreferrer"
           className="block w-full text-center py-2.5 px-4 bg-white border-2 border-blue-600 text-blue-600 rounded-lg font-medium hover:bg-blue-50 transition-colors"
         >
-          View Docs
+          GitHub
         </a>
       </div>
     </div>

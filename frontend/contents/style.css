@@ -11,3 +11,100 @@
   background-color: #fde047;
   border-bottom-color: #ca8a04;
 }
+
+/* Tooltip styles */
+.jargon-tooltip {
+  position: absolute;
+  z-index: 999999;
+  max-width: 400px;
+  animation: tooltipFadeIn 0.2s ease;
+}
+
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.jargon-tooltip-content {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 16px;
+  position: relative;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #333;
+}
+
+.jargon-tooltip-content::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: 20px;
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-bottom: 8px solid white;
+  filter: drop-shadow(0 -2px 2px rgba(0, 0, 0, 0.05));
+}
+
+.jargon-tooltip-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: transparent;
+  border: none;
+  font-size: 24px;
+  line-height: 1;
+  color: #999;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.jargon-tooltip-close:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+
+.jargon-tooltip-content p {
+  margin: 0;
+  padding-right: 24px;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .jargon-tooltip-content {
+    background: #2d2d2d;
+    border-color: #444;
+    color: #e0e0e0;
+  }
+  
+  .jargon-tooltip-content::before {
+    border-bottom-color: #2d2d2d;
+  }
+  
+  .jargon-tooltip-close {
+    color: #aaa;
+  }
+  
+  .jargon-tooltip-close:hover {
+    background: #3d3d3d;
+    color: #fff;
+  }
+}
