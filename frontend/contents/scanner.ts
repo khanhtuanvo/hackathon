@@ -10,8 +10,9 @@ let isEnabled = false;
 function getArticleContent(): string {
   const documentClone = document.cloneNode(true) as Document;
   
-  // Remove ad elements BEFORE Readability parses
-  const adSelectors = [
+  // Remove unwanted elements before Readability parses
+  const unwantedSelectors = [
+    // Ads
     '[class*="ad-"]',
     '[id*="ad-"]',
     '[class*="advertisement"]',
@@ -22,11 +23,39 @@ function getArticleContent(): string {
     'iframe[src*="googlesyndication"]',
     '.ad',
     '.ads',
-    '[class*="sidebar"]',
-    '[class*="related-posts"]'
+    
+    // Navigation and UI
+    'nav',
+    'header',
+    'footer',
+    'aside',
+    '[role="navigation"]',
+    '[role="banner"]',
+    '[role="contentinfo"]',
+    '.sidebar',
+    '.menu',
+    
+    // Legal/Terms
+    '[class*="terms"]',
+    '[class*="privacy"]',
+    '[class*="legal"]',
+    '[class*="disclaimer"]',
+    '[class*="footer"]',
+    '#footer',
+    
+    // Comments and social
+    '[class*="comment"]',
+    '[class*="social"]',
+    '.share',
+    '[class*="related"]',
+    
+    // Other noise
+    'script',
+    'style',
+    'noscript'
   ];
   
-  adSelectors.forEach(selector => {
+  unwantedSelectors.forEach(selector => {
     documentClone.querySelectorAll(selector).forEach(el => el.remove());
   });
   
@@ -34,7 +63,25 @@ function getArticleContent(): string {
   const article = reader.parse();
 
   if (article && article.textContent) {
-    return article.textContent.trim();
+    let content = article.textContent.trim();
+    
+    // Filter out common legal/terms text patterns
+    const unwantedPatterns = [
+      /terms\s+(and|&)\s+conditions/gi,
+      /privacy\s+policy/gi,
+      /cookie\s+policy/gi,
+      /all\s+rights\s+reserved/gi,
+      /©.*?\d{4}/g,
+      /please\s+confirm\s+any\s+data/gi,
+      /do\s+not\s+provide\s+medical\s+advice/gi,
+      /read\s+the\s+full\s+terms/gi
+    ];
+    
+    unwantedPatterns.forEach(pattern => {
+      content = content.replace(pattern, '');
+    });
+    
+    return content.trim();
   }
 
   console.warn("Readability.js failed, falling back to body.innerText");
@@ -50,12 +97,11 @@ function highlightJargon(terms: any[], descriptions: string[]) {
     return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   };
 
-  // Skip highlighting inside ads/unwanted sections
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
     acceptNode: (node) => {
       const parent = node.parentElement;
-      // Reject nodes inside ads, scripts, styles, or already highlighted
-      if (parent?.closest('script, style, .jargon-highlight, [class*="ad-"], [id*="ad-"], .advertisement, .sponsored')) {
+      // Skip ads, scripts, styles, and already highlighted text
+      if (parent?.closest('script, style, .jargon-highlight, [class*="ad-"], [id*="ad-"], .advertisement, .sponsored, footer, [class*="footer"]')) {
         return NodeFilter.FILTER_REJECT;
       }
       return NodeFilter.FILTER_ACCEPT;
@@ -140,7 +186,7 @@ async function scanPage() {
   if (isEnabled) {
     console.log('Scanning page:', window.location.href);
     const content = getArticleContent();
-    console.log(content);
+    console.log('Extracted content length:', content.length);
     await sendToBackend(content);
   }
 }
