@@ -186,19 +186,10 @@ uvicorn backend.app:app --reload --port 8000
 - Great baseline for hackathons; can upgrade later to a small transformer if needed.
 
 ---
-
-## 🔐 Privacy
-
-- **Offline mode:** No text leaves the page.
-- **API mode:** Text is sent to your server for inference/definitions—document this for users.
-- No PII is logged unless explicitly enabled.
-
----
-
 ## ⚙️ Configuration
 
 - **Thresholds:** `extension/src/ml/thresholds.ts` (per-label or global margin cut-off)
-- **Stopwords:** `extension/src/ml/stopwords.json` (e.g., `and, or, of, was, with`)
+- **Stopwords:** `extension/src/ml/stopwords.json` (e.g., `and, or, of, was, with,etc.`)
 - **Glossary:** `extension/src/data/glossary.json` for offline definitions
 - **Attribution:** Add source notes for external definitions (e.g., MedlinePlus/NHS)
 
@@ -240,44 +231,3 @@ PRs welcome! Please:
 3. Keep extension bundle size minimal.
 
 ---
-
-## 📜 License
-
-MIT (model weights may require dataset-specific terms; verify before redistribution).
-
----
-
-## 📝 Appendix: Minimal Inference (JS)
-
-```ts
-// utils/infer.ts (sketch)
-import vocab from "../ml/vocab.json"
-import stats from "../ml/tfidf_stats.json"
-import model from "../ml/model.json"
-
-export function predict(tokens: string[]): { phrase: string; label: string; score: number }[] {
-  // 1) build tf vector
-  const tf = new Map<number, number>()
-  for (const t of tokens) {
-    const idx = (vocab as any)[t]
-    if (idx !== undefined) tf.set(idx, (tf.get(idx) ?? 0) + 1)
-  }
-  // 2) tf-idf
-  const rows: number[] = []
-  const vals: number[] = []
-  for (const [i, f] of tf.entries()) {
-    const idf = (stats.idf as number[])[i] ?? 0
-    rows.push(i); vals.push(Math.log1p(f) * idf)
-  }
-  // 3) linear scores per class: X·W + b
-  const out = []
-  for (let c = 0; c < model.coef.length; c++) {
-    let s = model.intercept[c]
-    const w = model.coef[c] as number[]
-    for (let k = 0; k < rows.length; k++) s += vals[k] * (w[rows[k]] || 0)
-    out.push({ label: model.classes[c], score: s })
-  }
-  // choose top label + apply threshold elsewhere
-  return out.sort((a, b) => b.score - a.score)
-}
-```
