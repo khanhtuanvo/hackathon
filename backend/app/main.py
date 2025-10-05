@@ -225,7 +225,8 @@ async def mp_search(terms: list[str] = Query(...), lang: str = "en") -> list[str
 @app.post("/execute")
 async def execute(text: str):
     jargon_result = detect_medical_jargon(text)
-    description = mp_search(jargon_result)
+    jargon_terms = jargon_result # Change jargon result (list of dict) to jargon terms (list of string - terms)
+    description = mp_search(jargon_terms)
     return {
         "terms": jargon_result,
         "description": description
