@@ -1,0 +1,1 @@
+jargon_detector_lr.joblib

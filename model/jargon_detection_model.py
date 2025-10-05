@@ -6,11 +6,14 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import classification_report, roc_auc_score, average_precision_score
+from sklearn.metrics import (
+    classification_report, roc_auc_score, average_precision_score,
+    roc_curve, precision_recall_curve, confusion_matrix
+)
 import joblib
 import numpy as np
+import matplotlib.pyplot as plt   # <-- plotting
 
-# Create allowed label
 ALLOWED = {
     "BIOLOGICAL_STRUCTURE",
     "DIAGNOSTIC_PROCEDURE",
@@ -25,7 +28,6 @@ ALLOWED = {
 def as_bool(x):
     return (x is True) or (str(x).strip().lower() in {"true","1","yes","y","t"})
 
-# Read file json
 full ="medical_jargon_dataset.json"
 
 rows = json.load(open(full, "r", encoding="utf-8"))
@@ -41,7 +43,6 @@ df["is_medical_jargon"] = df["is_medical_jargon"].apply(as_bool)
 if "label" not in df.columns:
     df["label"] = None
 
-
 pos = df[(df["is_medical_jargon"] == True) & (df["label"].isin(ALLOWED))].copy()
 neg = df[df["is_medical_jargon"] == False].copy()
 
@@ -53,8 +54,6 @@ use = pd.concat([pos.assign(y=1), neg.assign(y=0)], ignore_index=True)
 use = use.dropna(subset=["text"]).sample(frac=1.0, random_state=42).reset_index(drop=True)
 
 
-# train model
-
 X = use["text"].astype(str).values
 y = use["y"].astype(int).values
 
@@ -63,7 +62,7 @@ X_train, X_test, y_train, y_test = train_test_split(
 )
 
 pipe = Pipeline([
-    ("tfidf", TfidfVectorizer(analyzer="char_wb", ngram_range=(1,5), min_df=4)),
+    ("tfidf", TfidfVectorizer(analyzer="char_wb", ngram_range=(3,5), min_df=3)), #abc
     ("clf", LogisticRegression(max_iter=2000, class_weight="balanced", solver="liblinear"))
 ])
 
@@ -77,3 +76,5 @@ print("ROC-AUC:", roc_auc_score(y_test, proba))
 print("AUPRC:", average_precision_score(y_test, proba))
 
 joblib.dump(pipe,  "jargon_detector_lr.joblib")
+
+
