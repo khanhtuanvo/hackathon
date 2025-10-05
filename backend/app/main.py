@@ -284,5 +284,5 @@ async def execute(request: ExecuteRequest):
     
     return {
         "terms": jargon_result,
-        "description": descriptions
+        "descriptions": descriptions
     }

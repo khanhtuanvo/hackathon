@@ -1,5 +1,5 @@
 import { Readability } from "@mozilla/readability";
-import "./scanner.css";
+import "./style.css";
 
 export const config = {
   matches: ["<all_urls>"],
@@ -172,7 +172,10 @@ async function sendToBackend(content: string) {
     if (response.ok) {
       console.log('Content sent successfully');
       const data = await response.json();
+      console.log(data.terms);
+      console.log(data.descriptions);
       if (data.terms && data.descriptions) {
+        console.log("adu dinh vai lon");
         highlightJargon(data.terms, data.descriptions);
       }
     } else {
