@@ -57,85 +57,88 @@ class ExplainTermInContextRequest(BaseModel):
     term: str
     context_text: str
 
+class ExecuteRequest(BaseModel):
+    text: str
+
 # -------------------------------
 # Minimal term dictionary (seed it; extend later)
 # term -> (concept_id, semantic_type)
 # -------------------------------
-TERM_DICT = {
-    "hypertension": ("MESH:D006973", "DiseaseOrSyndrome"),
-    "htn": ("MESH:D006973", "DiseaseOrSyndrome"),
-    "dm2": ("MESH:D003924", "DiseaseOrSyndrome"),
-    "diabetes mellitus": ("MESH:D003920", "DiseaseOrSyndrome"),
-    "sob": ("SYMPTOM:SOB", "Finding"),
-    "shortness of breath": ("SYMPTOM:SOB", "Finding"),
-    "troponin": ("LAB:TROP", "LaboratoryProcedure"),
-    "pneumonia": ("MESH:D011014", "DiseaseOrSyndrome"),
-    "pe": ("MESH:D011655", "DiseaseOrSyndrome"),  # beware collisions: 'pe' can be 'pulmonary embolism' or 'physical education'
-    "pulmonary embolism": ("MESH:D011655", "DiseaseOrSyndrome"),
-    "hx": (None, "Modifier"),
-    "c/o": (None, "Modifier"),
-    "r/o": (None, "Modifier"),
-    "wnl": (None, "Modifier"),
-}
+# TERM_DICT = {
+#     "hypertension": ("MESH:D006973", "DiseaseOrSyndrome"),
+#     "htn": ("MESH:D006973", "DiseaseOrSyndrome"),
+#     "dm2": ("MESH:D003924", "DiseaseOrSyndrome"),
+#     "diabetes mellitus": ("MESH:D003920", "DiseaseOrSyndrome"),
+#     "sob": ("SYMPTOM:SOB", "Finding"),
+#     "shortness of breath": ("SYMPTOM:SOB", "Finding"),
+#     "troponin": ("LAB:TROP", "LaboratoryProcedure"),
+#     "pneumonia": ("MESH:D011014", "DiseaseOrSyndrome"),
+#     "pe": ("MESH:D011655", "DiseaseOrSyndrome"),  # beware collisions: 'pe' can be 'pulmonary embolism' or 'physical education'
+#     "pulmonary embolism": ("MESH:D011655", "DiseaseOrSyndrome"),
+#     "hx": (None, "Modifier"),
+#     "c/o": (None, "Modifier"),
+#     "r/o": (None, "Modifier"),
+#     "wnl": (None, "Modifier"),
+# }
 
-# Common abbreviations expanded when possible (document-local mapping is better; this is a seed)
-ABBREV_EXPANSIONS = {
-    "htn": "hypertension",
-    "dm2": "type 2 diabetes",
-    "sob": "shortness of breath",
-    "hx": "history",
-    "c/o": "complains of / reports",
-    "r/o": "rule out",
-    "wnl": "within normal limits",
-    "pe": "pulmonary embolism",
-}
+# # Common abbreviations expanded when possible (document-local mapping is better; this is a seed)
+# ABBREV_EXPANSIONS = {
+#     "htn": "hypertension",
+#     "dm2": "type 2 diabetes",
+#     "sob": "shortness of breath",
+#     "hx": "history",
+#     "c/o": "complains of / reports",
+#     "r/o": "rule out",
+#     "wnl": "within normal limits",
+#     "pe": "pulmonary embolism",
+# }
 
 # -------------------------------
 # Helpers
 # -------------------------------
 
-def normalize(text: str) -> str:
-    # basic normalization; keep punctuation that matters
-    text = re.sub(r"\r\n?|\n", "\n", text)
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
+# def normalize(text: str) -> str:
+#     # basic normalization; keep punctuation that matters
+#     text = re.sub(r"\r\n?|\n", "\n", text)
+#     text = re.sub(r"\s+", " ", text)
+#     return text.strip()
 
 
-def find_dict_spans(text: str) -> List[Span]:
-    spans: List[Span] = []
-    lowered = text.lower()
-    # sort longer terms first to favor longer matches during overlap filtering
-    for term in sorted(TERM_DICT.keys(), key=len, reverse=True):
-        cid, stype = TERM_DICT[term]
-        # allow word boundary around term; handle slashes and hyphens in simple way
-        pattern = r"(?<!\w)" + re.escape(term) + r"(?!\w)"
-        for m in re.finditer(pattern, lowered, flags=re.IGNORECASE):
-            spans.append(Span(
-                text=text[m.start():m.end()],
-                start=m.start(),
-                end=m.end(),
-                match_type="dictionary",
-                concept_id=cid,
-                semantic_type=stype,
-                confidence=0.97 if cid else 0.9,
-                expanded=ABBREV_EXPANSIONS.get(term)
-            ))
-    # resolve overlaps: keep the longest span, then left-to-right
-    spans = sorted(spans, key=lambda s: (s.start, -(s.end - s.start)))
-    non_overlap: List[Span] = []
-    last_end = -1
-    for s in spans:
-        if s.start >= last_end:
-            non_overlap.append(s)
-            last_end = s.end
-        else:
-            # overlapping: keep the longer one (already sorted by length desc for same start)
-            # If overlap but starts later than previous, decide by length
-            prev = non_overlap[-1]
-            if (s.end - s.start) > (prev.end - prev.start):
-                non_overlap[-1] = s
-                last_end = s.end
-    return non_overlap
+# def find_dict_spans(text: str) -> List[Span]:
+#     spans: List[Span] = []
+#     lowered = text.lower()
+#     # sort longer terms first to favor longer matches during overlap filtering
+#     for term in sorted(TERM_DICT.keys(), key=len, reverse=True):
+#         cid, stype = TERM_DICT[term]
+#         # allow word boundary around term; handle slashes and hyphens in simple way
+#         pattern = r"(?<!\w)" + re.escape(term) + r"(?!\w)"
+#         for m in re.finditer(pattern, lowered, flags=re.IGNORECASE):
+#             spans.append(Span(
+#                 text=text[m.start():m.end()],
+#                 start=m.start(),
+#                 end=m.end(),
+#                 match_type="dictionary",
+#                 concept_id=cid,
+#                 semantic_type=stype,
+#                 confidence=0.97 if cid else 0.9,
+#                 expanded=ABBREV_EXPANSIONS.get(term)
+#             ))
+#     # resolve overlaps: keep the longest span, then left-to-right
+#     spans = sorted(spans, key=lambda s: (s.start, -(s.end - s.start)))
+#     non_overlap: List[Span] = []
+#     last_end = -1
+#     for s in spans:
+#         if s.start >= last_end:
+#             non_overlap.append(s)
+#             last_end = s.end
+#         else:
+#             # overlapping: keep the longer one (already sorted by length desc for same start)
+#             # If overlap but starts later than previous, decide by length
+#             prev = non_overlap[-1]
+#             if (s.end - s.start) > (prev.end - prev.start):
+#                 non_overlap[-1] = s
+#                 last_end = s.end
+#     return non_overlap
 
 
 
@@ -145,7 +148,7 @@ def find_dict_spans(text: str) -> List[Span]:
 app = FastAPI(title="Medical Jargon Extractor — MVP")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:8000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -183,51 +186,103 @@ def health():
 #     return ExtractResponse(original_text=text, spans=typed_spans)
 
 
-async def mp_search(terms: list[str] = Query(...), lang: str = "en") -> list[str]:
-    """Keyword -> MedlinePlus Health Topic"""
+# async def mp_search(terms: list[str] = Query(...), lang: str = "en") -> list[str]:
+#     """Keyword -> MedlinePlus Health Topic"""
+#     hits = await medlineplus_search(terms, lang="es" if lang == "es" else "en")
+
+#     description = []
+#     for term, hit in zip(terms, hits):
+#         final_prompt = f"""
+#         You are a helpful medical educator. Your task is to explain the following medical term in a simple and easy-to-understand way for someone with no health knowledge.
+#         Use the provided context text to understand how the term is being used.
+
+#         - Term to Explain: "{term}"
+#         - Full Context: "{hit}"
+
+#         Please provide a brief, simple explanation of the term. Use a relatable analogy if it helps.
+#         Focus only on explaining the term itself.
+#         """
+
+#         try:
+#             # 2. Call the OpenAI API asynchronously
+#             completion = await client.chat.completions.create(
+#                 model="gpt-3.5-turbo", # Or "gpt-4o"
+#                 messages=[
+#                     {"role": "user", "content": final_prompt}
+#                 ]
+#             )
+#             simplified_text = completion.choices[0].message.content
+
+#             if not simplified_text:
+#                 description.append("")
+#                 raise HTTPException(status_code=500, detail="OpenAI returned an empty response.")
+
+#             description.append(simplified_text.strip())
+
+#         except Exception as e:
+#             # Handle potential API errors
+#             description.append("")
+#             raise HTTPException(status_code=500, detail=f"An error occurred with the OpenAI API: {e}")
+#     return description
+
+
+import asyncio # Add this import at the top
+
+
+# Rewritten mp_search to be much faster
+async def mp_search(terms: list[str], lang: str = "en") -> list[str]:
+    """Gets MedlinePlus topics and then explains all terms concurrently."""
+    
+    if not terms:
+        return []
+
+    # 1. Get all MedlinePlus contexts concurrently
     hits = await medlineplus_search(terms, lang="es" if lang == "es" else "en")
 
-    description = []
-    for term, hit in zip(terms, hits):
-        final_prompt = f"""
+    # 2. Create a list of all the OpenAI explanation tasks
+    tasks = [get_simplified_explanation(term, hit) for term, hit in zip(terms, hits)]
+
+    # 3. Run all OpenAI tasks concurrently and wait for them to finish
+    descriptions = await asyncio.gather(*tasks)
+    
+    return descriptions
+
+
+# Helper function to process one term
+async def get_simplified_explanation(term: str, context: Optional[dict]) -> str:
+    if not context or not context.get("summary"):
+        return f"No detailed information found for '{term}'."
+
+    context_text = context["summary"]
+    
+    final_prompt = f"""
         You are a helpful medical educator. Your task is to explain the following medical term in a simple and easy-to-understand way for someone with no health knowledge.
         Use the provided context text to understand how the term is being used.
 
         - Term to Explain: "{term}"
-        - Full Context: "{hit}"
+        - Full Context: "{context_text}"
 
         Please provide a brief, simple explanation of the term. Use a relatable analogy if it helps.
-        Focus only on explaining the term itself.
-        """
-
-        try:
-            # 2. Call the OpenAI API asynchronously
-            completion = await client.chat.completions.create(
-                model="gpt-3.5-turbo", # Or "gpt-4o"
-                messages=[
-                    {"role": "user", "content": final_prompt}
-                ]
-            )
-            simplified_text = completion.choices[0].message.content
-
-            if not simplified_text:
-                description.append("")
-                raise HTTPException(status_code=500, detail="OpenAI returned an empty response.")
-
-            description.append(simplified_text.strip())
-
-        except Exception as e:
-            # Handle potential API errors
-            description.append("")
-            raise HTTPException(status_code=500, detail=f"An error occurred with the OpenAI API: {e}")
-    return description
+        Focus only on explaining the term itself."""
+    try:
+        completion = await client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": final_prompt}]
+        )
+        return completion.choices[0].message.content.strip()
+    except Exception as e:
+        return f"Error explaining '{term}': {e}"
 
 @app.post("/execute")
-async def execute(text: str):
-    jargon_result = detect_medical_jargon(text)
-    jargon_terms = jargon_result # Change jargon result (list of dict) to jargon terms (list of string - terms)
-    description = mp_search(jargon_terms)
+async def execute(request: ExecuteRequest):
+    jargon_result = await run_in_threadpool(detect_medical_jargon, request.text)
+    jargon_terms = [res_dict.get("term") for res_dict in jargon_result if res_dict.get("term")] # Change jargon result (list of dict) to jargon terms (list of string - terms)
+    descriptions = await mp_search(jargon_terms)
+
+    print(f"Terms: {jargon_terms}")
+    print(f"Descriptions from OpenAI: {descriptions}") # See what is being sent back
+    
     return {
         "terms": jargon_result,
-        "description": description
+        "description": descriptions
     }
