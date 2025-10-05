@@ -1,4 +1,5 @@
 import { Readability } from "@mozilla/readability";
+import "./scanner.css";
 
 export const config = {
   matches: ["<all_urls>"],

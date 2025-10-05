@@ -1,5 +1,13 @@
 .jargon-highlight {
-  background-color: yellow;
-  cursor: pointer;
-  border-bottom: 2px dashed orange;
+  background-color: #fef08a;
+  border-bottom: 2px solid #eab308;
+  cursor: help;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: all 0.2s;
+}
+
+.jargon-highlight:hover {
+  background-color: #fde047;
+  border-bottom-color: #ca8a04;
 }
