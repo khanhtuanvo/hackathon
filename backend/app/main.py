@@ -1,11 +1,14 @@
 # add at the top
+import os 
 import shutil
-from typing import Optional
+# --- NEW: OpenAI and environment variable setup ---
+from dotenv import load_dotenv
+from openai import AsyncOpenAI
+from fastapi.concurrency import run_in_threadpool # Keep for sync functions
+
+
 from .services.medlineplus import (
     medlineplus_search,
-)
-from .services.jargon_detection import (
-    detect_medical_jargon
 )
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
@@ -15,6 +18,14 @@ from typing import List, Optional, Literal
 import re
 from tempfile import NamedTemporaryFile
 from pathlib import Path
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Initialize the Async OpenAI client
+# It automatically reads the OPENAI_API_KEY from your .env file
+client = AsyncOpenAI()
+
 
 # -------------------------------
 # Pydantic models
@@ -38,7 +49,15 @@ class ExtractRequest(BaseModel):
 class ExtractResponse(BaseModel):
     original_text: str
     spans: List[Span]
+# With this simpler version:
+class ExplainTermInContextRequest(BaseModel):
+    term: str
+    context_text: str
 
+
+# This response model remains the same
+class SimplifyResponse(BaseModel):
+    simplified_text: str
 # -------------------------------
 # Minimal term dictionary (seed it; extend later)
 # term -> (concept_id, semantic_type)
@@ -171,7 +190,7 @@ def extract_text_from_upload(
 app = FastAPI(title="Medical Jargon Extractor — MVP")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["http://localhost:5173", "http://localhost:8000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -215,12 +234,97 @@ async def mp_search(term: str = Query(...), lang: str = "en"):
     hit = await medlineplus_search(term, lang="es" if lang == "es" else "en")
     return {"term": term, "lang": lang, "result": hit}
 
-@app.get("/jargon/detect")
-async def detect_jargon(text: str):
-    jargon_result = detect_medical_jargon(text)
-    N = len(jargon_result)
+
+# --- NEW ENDPOINT FOR SIMPLIFICATION USING OPENAI ---
+# @app.post("/v1/simplify", response_model=SimplifyResponse)
+# async def simplify_text(request: SimpleSimplifyRequest):
+#     """
+#     Takes a string of medical text and returns a simplified
+#     explanation suitable for a student.
+#     """
+#     # Inside your simplify_text function, replace the old prompt with this one:
+
+#     final_prompt = f"""
+#     You are a friendly health educator explaining a concept to a middle school student.
+#     Your task is to rewrite the clinical text below in a way that is extremely simple and easy to understand.
+
+#     Follow these steps:
+#     1. Use a simple, relatable analogy to explain the main idea. For lung issues, an analogy with straws or tubes is often effective.
+#     2. Explain what the key medical terms mean in the context of your analogy.
+#     3. Keep the tone friendly and reassuring.
+#     4. Ensure the final explanation is short and clear.
+#     5. Keep it as brief as possible
+
+#     --- CLINICAL TEXT ---
+#     {request.text}
+
+#     --- SIMPLIFIED EXPLANATION ---
+#     """
+
+#     try:
+#         # 2. Call the OpenAI API asynchronously
+#         completion = await client.chat.completions.create(
+#             model="gpt-3.5-turbo", # Or a more advanced model like "gpt-4o"
+#             messages=[
+#                 {"role": "user", "content": final_prompt}
+#             ]
+#         )
+#         simplified_text = completion.choices[0].message.content
+
+#         if not simplified_text:
+#              raise HTTPException(status_code=500, detail="OpenAI returned an empty response.")
+
+#         return SimplifyResponse(simplified_text=simplified_text.strip())
+
+#     except Exception as e:
+#         # Handle potential API errors
+#         raise HTTPException(status_code=500, detail=f"An error occurred with the OpenAI API: {e}")
+# ----------------------------------------------------
+
+@app.post("/v1/explain_term", response_model=SimplifyResponse)
+async def explain_term(request: ExplainTermInContextRequest):
+    """
+    Takes a specific medical term and the text it appeared in,
+    and returns a simple explanation of that term for a layperson.
+    """
+    # 1. Construct the new, targeted prompt for OpenAI
+    final_prompt = f"""
+    You are a helpful medical educator. Your task is to explain the following medical term in a simple and easy-to-understand way for someone with no health knowledge.
+    Use the provided context text to understand how the term is being used.
+
+    - Term to Explain: "{request.term}"
+    - Full Context: "{request.context_text}"
+
+    Please provide a brief, simple explanation of the term. Use a relatable analogy if it helps.
+    Focus only on explaining the term itself.
+    """
+
+    try:
+        # 2. Call the OpenAI API asynchronously
+        completion = await client.chat.completions.create(
+            model="gpt-3.5-turbo", # Or "gpt-4o"
+            messages=[
+                {"role": "user", "content": final_prompt}
+            ]
+        )
+        simplified_text = completion.choices[0].message.content
+
+        if not simplified_text:
+             raise HTTPException(status_code=500, detail="OpenAI returned an empty response.")
+
+        return SimplifyResponse(simplified_text=simplified_text.strip())
+
+    except Exception as e:
+        # Handle potential API errors
+        raise HTTPException(status_code=500, detail=f"An error occurred with the OpenAI API: {e}")
 
 
-    return {
+# @app.get("/jargon/detect")
+# async def detect_jargon(text: str):
+#     jargon_result = detect_medical_jargon(text)
+#     N = len(jargon_result)
+
+
+#     return {
         
-    }
+#     }
