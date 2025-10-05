@@ -15,7 +15,6 @@ Detect medical jargon while you read any article and get simple explanations—r
 - **Jargon detection:** SVM classifier trained on labeled biomedical spans.
 - **Explain in plain English:** Uses rule-based templates + public-source glossaries (e.g., MedlinePlus/NHS/NCIt—configure attribution).
 - **Two deployment modes:**
-  - **Local/offline:** Load TF-IDF vocab + SVM weights in the extension for client-side inference.
   - **API mode:** Send text to a FastAPI server for prediction + definitions.
 - **Privacy-first:** No data leaves the page in offline mode. Opt-in telemetry only.
 
