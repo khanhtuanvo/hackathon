@@ -10,6 +10,9 @@ from fastapi.concurrency import run_in_threadpool # Keep for sync functions
 from .services.medlineplus import (
     medlineplus_search,
 )
+from .services.jargon_detection import (
+    detect_medical_jargon
+)
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -54,10 +57,6 @@ class ExplainTermInContextRequest(BaseModel):
     term: str
     context_text: str
 
-
-# This response model remains the same
-class SimplifyResponse(BaseModel):
-    simplified_text: str
 # -------------------------------
 # Minimal term dictionary (seed it; extend later)
 # term -> (concept_id, semantic_type)
@@ -200,131 +199,77 @@ app.add_middleware(
 def health():
     return {"ok": True}
 
-@app.post("/v1/extract_terms_upload", response_model=ExtractResponse)
-async def extract_terms_upload(file: UploadFile = File(...)):
-    orig_suffix = (Path(file.filename or "").suffix or "").lower()
-    with NamedTemporaryFile(delete=False, suffix=orig_suffix) as tmp:
-        file.file.seek(0)
-        shutil.copyfileobj(file.file, tmp)
-        tmp_path = Path(tmp.name)
-    try:
-        raw = extract_text_from_upload(
-            tmp_path,
-            original_filename=file.filename,
-            content_type=file.content_type,
-        )
-    finally:
-        try:
-            tmp_path.unlink()
-        except Exception:
-            pass
+# @app.post("/v1/extract_terms_upload", response_model=ExtractResponse)
+# async def extract_terms_upload(file: UploadFile = File(...)):
+#     orig_suffix = (Path(file.filename or "").suffix or "").lower()
+#     with NamedTemporaryFile(delete=False, suffix=orig_suffix) as tmp:
+#         file.file.seek(0)
+#         shutil.copyfileobj(file.file, tmp)
+#         tmp_path = Path(tmp.name)
+#     try:
+#         raw = extract_text_from_upload(
+#             tmp_path,
+#             original_filename=file.filename,
+#             content_type=file.content_type,
+#         )
+#     finally:
+#         try:
+#             tmp_path.unlink()
+#         except Exception:
+#             pass
 
-    text = normalize(raw)
-    raw_spans = [s.model_dump() for s in find_dict_spans(text)]
-    # if you don’t want auto MedlinePlus enrichment, skip it:
-    # enriched = await enrich_spans_with_medlineplus(raw_spans, lang="en")
-    # typed_spans = [Span(**s) for s in enriched]
-    typed_spans = [Span(**s) for s in raw_spans]
-    return ExtractResponse(original_text=text, spans=typed_spans)
+#     text = normalize(raw)
+#     raw_spans = [s.model_dump() for s in find_dict_spans(text)]
+#     # if you don’t want auto MedlinePlus enrichment, skip it:
+#     # enriched = await enrich_spans_with_medlineplus(raw_spans, lang="en")
+#     # typed_spans = [Span(**s) for s in enriched]
+#     typed_spans = [Span(**s) for s in raw_spans]
+#     return ExtractResponse(original_text=text, spans=typed_spans)
 
 
 @app.get("/v1/mp/search")
-async def mp_search(term: str = Query(...), lang: str = "en"):
+async def mp_search(terms: list[str] = Query(...), lang: str = "en") -> list[str]:
     """Keyword -> MedlinePlus Health Topic"""
-    hit = await medlineplus_search(term, lang="es" if lang == "es" else "en")
-    return {"term": term, "lang": lang, "result": hit}
+    hits = await medlineplus_search(terms, lang="es" if lang == "es" else "en")
 
+    description = []
+    for term, hit in zip(terms, hits):
+        final_prompt = f"""
+        You are a helpful medical educator. Your task is to explain the following medical term in a simple and easy-to-understand way for someone with no health knowledge.
+        Use the provided context text to understand how the term is being used.
 
-# --- NEW ENDPOINT FOR SIMPLIFICATION USING OPENAI ---
-# @app.post("/v1/simplify", response_model=SimplifyResponse)
-# async def simplify_text(request: SimpleSimplifyRequest):
-#     """
-#     Takes a string of medical text and returns a simplified
-#     explanation suitable for a student.
-#     """
-#     # Inside your simplify_text function, replace the old prompt with this one:
+        - Term to Explain: "{term}"
+        - Full Context: "{hit}"
 
-#     final_prompt = f"""
-#     You are a friendly health educator explaining a concept to a middle school student.
-#     Your task is to rewrite the clinical text below in a way that is extremely simple and easy to understand.
+        Please provide a brief, simple explanation of the term. Use a relatable analogy if it helps.
+        Focus only on explaining the term itself.
+        """
 
-#     Follow these steps:
-#     1. Use a simple, relatable analogy to explain the main idea. For lung issues, an analogy with straws or tubes is often effective.
-#     2. Explain what the key medical terms mean in the context of your analogy.
-#     3. Keep the tone friendly and reassuring.
-#     4. Ensure the final explanation is short and clear.
-#     5. Keep it as brief as possible
+        try:
+            # 2. Call the OpenAI API asynchronously
+            completion = await client.chat.completions.create(
+                model="gpt-3.5-turbo", # Or "gpt-4o"
+                messages=[
+                    {"role": "user", "content": final_prompt}
+                ]
+            )
+            simplified_text = completion.choices[0].message.content
 
-#     --- CLINICAL TEXT ---
-#     {request.text}
+            if not simplified_text:
+                description.append("")
+                raise HTTPException(status_code=500, detail="OpenAI returned an empty response.")
 
-#     --- SIMPLIFIED EXPLANATION ---
-#     """
+            description.append(simplified_text.strip())
 
-#     try:
-#         # 2. Call the OpenAI API asynchronously
-#         completion = await client.chat.completions.create(
-#             model="gpt-3.5-turbo", # Or a more advanced model like "gpt-4o"
-#             messages=[
-#                 {"role": "user", "content": final_prompt}
-#             ]
-#         )
-#         simplified_text = completion.choices[0].message.content
+        except Exception as e:
+            # Handle potential API errors
+            description.append("")
+            raise HTTPException(status_code=500, detail=f"An error occurred with the OpenAI API: {e}")
+    return description
 
-#         if not simplified_text:
-#              raise HTTPException(status_code=500, detail="OpenAI returned an empty response.")
-
-#         return SimplifyResponse(simplified_text=simplified_text.strip())
-
-#     except Exception as e:
-#         # Handle potential API errors
-#         raise HTTPException(status_code=500, detail=f"An error occurred with the OpenAI API: {e}")
-# ----------------------------------------------------
-
-@app.post("/v1/explain_term", response_model=SimplifyResponse)
-async def explain_term(request: ExplainTermInContextRequest):
-    """
-    Takes a specific medical term and the text it appeared in,
-    and returns a simple explanation of that term for a layperson.
-    """
-    # 1. Construct the new, targeted prompt for OpenAI
-    final_prompt = f"""
-    You are a helpful medical educator. Your task is to explain the following medical term in a simple and easy-to-understand way for someone with no health knowledge.
-    Use the provided context text to understand how the term is being used.
-
-    - Term to Explain: "{request.term}"
-    - Full Context: "{request.context_text}"
-
-    Please provide a brief, simple explanation of the term. Use a relatable analogy if it helps.
-    Focus only on explaining the term itself.
-    """
-
-    try:
-        # 2. Call the OpenAI API asynchronously
-        completion = await client.chat.completions.create(
-            model="gpt-3.5-turbo", # Or "gpt-4o"
-            messages=[
-                {"role": "user", "content": final_prompt}
-            ]
-        )
-        simplified_text = completion.choices[0].message.content
-
-        if not simplified_text:
-             raise HTTPException(status_code=500, detail="OpenAI returned an empty response.")
-
-        return SimplifyResponse(simplified_text=simplified_text.strip())
-
-    except Exception as e:
-        # Handle potential API errors
-        raise HTTPException(status_code=500, detail=f"An error occurred with the OpenAI API: {e}")
-
-
-# @app.get("/jargon/detect")
-# async def detect_jargon(text: str):
-#     jargon_result = detect_medical_jargon(text)
-#     N = len(jargon_result)
-
-
-#     return {
-        
-#     }
+@app.post("/execute")
+async def execute(text: str):
+    jargon_result = detect_medical_jargon(text)
+    
+    for jargon in jargon_result:
+        term = jargon["term"]

@@ -47,97 +47,52 @@ def _cache_set(key: Tuple[str, str, str], payload: dict) -> None:
 # ---------------------------
 # Web Service (keyword search)
 # ---------------------------
-async def medlineplus_search(term: str, lang: Lang = "en") -> Optional[dict]:
-    db = "healthTopicsSpanish" if lang == "es" else "healthTopics"
-    cache_key = ("ws", lang, term.strip().lower())
-    cached = _cache_get(cache_key)
-    if cached:
-        return cached
+async def medlineplus_search(terms: list[str], lang: Lang = "en") -> Optional[list[dict]]:
+    result = []
+    for term in terms:
+        db = "healthTopicsSpanish" if lang == "es" else "healthTopics"
+        cache_key = ("ws", lang, term.strip().lower())
+        cached = _cache_get(cache_key)
+        if cached:
+            result.append(cached)
+            continue
 
-    params = {"db": db, "term": term}
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.get(MPLUS_WS, params=params)
-            r.raise_for_status()
-    except Exception:
-        return None
+        params = {"db": db, "term": term}
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                r = await client.get(MPLUS_WS, params=params)
+                r.raise_for_status()
+        except Exception:
+            result.append(None)
+            continue
 
-    try:
-        root = ET.fromstring(r.text)
-        doc = root.find(".//list/document")
-        if doc is None:
-            return None
+        try:
+            root = ET.fromstring(r.text)
+            doc = root.find(".//list/document")
+            if doc is None:
+                result.append(None)
+                continue
 
-        title_raw = doc.findtext("./content[@name='title']") or ""
-        url       = (doc.findtext("./content[@name='url']") or "").strip()
+            title_raw = doc.findtext("./content[@name='title']") or ""
+            url       = (doc.findtext("./content[@name='url']") or "").strip()
 
-        # FullSummary can appear as 'FullSummary' (capital F,S) or 'full-summary'
-        full_raw  = (doc.findtext("./content[@name='FullSummary']") or
-                     doc.findtext("./content[@name='full-summary']") or "")
-        snippet_raw = doc.findtext("./content[@name='snippet']") or ""
+            # FullSummary can appear as 'FullSummary' (capital F,S) or 'full-summary'
+            full_raw  = (doc.findtext("./content[@name='FullSummary']") or
+                        doc.findtext("./content[@name='full-summary']") or "")
+            snippet_raw = doc.findtext("./content[@name='snippet']") or ""
 
-        # Prefer the first <p> of FullSummary; fall back to cleaned snippet
-        first_p = first_paragraph_from_fullsummary(full_raw)
-        summary = first_p if first_p else clean_medlineplus_text(snippet_raw)
+            # Prefer the first <p> of FullSummary; fall back to cleaned snippet
+            first_p = first_paragraph_from_fullsummary(full_raw)
+            summary = first_p if first_p else clean_medlineplus_text(snippet_raw)
 
-        title = clean_medlineplus_text(title_raw)
-        result = {"title": title, "url": url, "summary": summary, "source": "MedlinePlus Web Service"}
-        _cache_set(cache_key, result)
-        return result
-    except Exception:
-        return None
+            title = clean_medlineplus_text(title_raw)
+            searchResult = {"title": title, "url": url, "summary": summary, "source": "MedlinePlus Web Service"}
+            _cache_set(cache_key, searchResult)
+            result.append(searchResult)
+        except Exception:
+            result.append(None)
+    return result
 
-
-
-# ---------------------------
-# Connect (code → topic)
-# ---------------------------
-async def medlineplus_connect(code_system: str, code: str, lang: Lang = "en") -> Optional[dict]:
-    """
-    Resolve a clinical code (SNOMEDCT, ICD10CM, RXCUI, LOINC) to a MedlinePlus topic.
-    Returns a dict with title, url, summary (when available).
-    """
-    cs = code_system.upper()
-    oid = CODE_SYSTEMS.get(cs)
-    if not oid:
-        return None
-
-    cache_key = ("connect", lang, f"{cs}:{code}")
-    cached = _cache_get(cache_key)
-    if cached:
-        return cached
-
-    params = {
-        "mainSearchCriteria.v.cs": oid,
-        "mainSearchCriteria.v.c": code,
-        "knowledgeResponseType": "application/json",
-        "informationRecipient.languageCode.c": lang,
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.get(MPLUS_CONNECT, params=params)
-            r.raise_for_status()
-            data = r.json()
-    except Exception:
-        return None
-
-    # Parse Connect JSON (Atom feed-like structure)
-    try:
-        entries = data.get("feed", {}).get("entry", [])
-        if not entries:
-            return None
-        first = entries[0]
-        # Some responses place link in link[0]["@href"]; title in title["#text"]; summary optional
-        link_arr = first.get("link", [])
-        url = link_arr[0].get("@href") if link_arr else ""
-        title = (first.get("title", {}) or {}).get("#text", "") or ""
-        summary = (first.get("summary", {}) or {}).get("#text", "") or ""
-        result = {"title": title.strip(), "url": url.strip(), "summary": summary.strip(), "source": "MedlinePlus Connect"}
-        _cache_set(cache_key, result)
-        return result
-    except Exception:
-        return None
 
 
 # ---------------------------
