@@ -3,3 +3,4 @@ uvicorn[standard]
 pydantic
 python-multipart
 python-docx==1.1.2
+httpx

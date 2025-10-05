@@ -1,8 +1,14 @@
 # add at the top
 import shutil
 from typing import Optional
+from .services.medlineplus import (
+    medlineplus_search,
+    medlineplus_connect,
+    explain_span,
+    enrich_spans_with_medlineplus,
+)
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Literal
@@ -21,7 +27,10 @@ class Span(BaseModel):
     concept_id: Optional[str] = None
     semantic_type: Optional[str] = None
     confidence: Optional[float] = 0.95
-    expanded: Optional[str] = None  # for abbreviations
+    expanded: Optional[str] = None
+    # NEW:
+    medlineplus: Optional[dict] = None
+
 
 class ExtractRequest(BaseModel):
     text: str
@@ -177,20 +186,28 @@ async def extract_terms(req: ExtractRequest):
     if not req.text or not req.text.strip():
         raise HTTPException(status_code=400, detail="Empty text")
     text = normalize(req.text)
-    spans = find_dict_spans(text)
-    return ExtractResponse(original_text=text, spans=spans)
+    raw_spans = [s.model_dump() for s in find_dict_spans(text)]  # pydantic v2: model_dump
+    enriched = await enrich_spans_with_medlineplus(raw_spans, lang="en")
+    # rebuild Span objects (keeps medlineplus field)
+    typed_spans = [Span(**s) for s in enriched]
+    return ExtractResponse(original_text=text, spans=typed_spans)
+
+# @app.post("/v1/extract_terms_upload", response_model=ExtractResponse)
+# async def extract_terms_upload(file: UploadFile = File(...)):
+#     # ... your existing temp-file logic (with suffix fix) ...
+#     text = normalize(raw)
+#     raw_spans = [s.model_dump() for s in find_dict_spans(text)]
+#     enriched = await enrich_spans_with_medlineplus(raw_spans, lang="en")
+#     typed_spans = [Span(**s) for s in enriched]
+#     return ExtractResponse(original_text=text, spans=typed_spans)
 
 @app.post("/v1/extract_terms_upload", response_model=ExtractResponse)
 async def extract_terms_upload(file: UploadFile = File(...)):
-    # keep the original extension (e.g., ".docx") so .suffix works
     orig_suffix = (Path(file.filename or "").suffix or "").lower()
-
     with NamedTemporaryFile(delete=False, suffix=orig_suffix) as tmp:
-        # robust copy (handles large files)
         file.file.seek(0)
         shutil.copyfileobj(file.file, tmp)
         tmp_path = Path(tmp.name)
-
     try:
         raw = extract_text_from_upload(
             tmp_path,
@@ -204,5 +221,30 @@ async def extract_terms_upload(file: UploadFile = File(...)):
             pass
 
     text = normalize(raw)
-    spans = find_dict_spans(text)
-    return ExtractResponse(original_text=text, spans=spans)
+    raw_spans = [s.model_dump() for s in find_dict_spans(text)]
+    # if you don’t want auto MedlinePlus enrichment, skip it:
+    # enriched = await enrich_spans_with_medlineplus(raw_spans, lang="en")
+    # typed_spans = [Span(**s) for s in enriched]
+    typed_spans = [Span(**s) for s in raw_spans]
+    return ExtractResponse(original_text=text, spans=typed_spans)
+
+
+@app.get("/v1/mp/search")
+async def mp_search(term: str = Query(...), lang: str = "en"):
+    """Keyword -> MedlinePlus Health Topic"""
+    hit = await medlineplus_search(term, lang="es" if lang == "es" else "en")
+    return {"term": term, "lang": lang, "result": hit}
+
+@app.get("/v1/mp/connect")
+async def mp_connect(code_system: str, code: str, lang: str = "en"):
+    """Code (e.g., SNOMEDCT/ICD10CM/RXCUI/LOINC) -> MedlinePlus topic"""
+    hit = await medlineplus_connect(code_system, code, lang="es" if lang == "es" else "en")
+    return {"code_system": code_system, "code": code, "lang": lang, "result": hit}
+
+@app.get("/v1/mp/explain")
+async def mp_explain(term: str, code: Optional[str] = None,
+                     code_system: Optional[str] = None, lang: str = "en"):
+    """Try Connect (if code provided) then fallback to keyword search."""
+    hit = await explain_span(term, lang="es" if lang == "es" else "en",
+                             code=code, code_system=code_system)
+    return {"term": term, "code": code, "code_system": code_system, "lang": lang, "result": hit}

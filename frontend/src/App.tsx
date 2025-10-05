@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { extractText, extractUpload } from "./api";
+import { extractText, extractUpload, searchTerm} from "./api";
+import "./App.css"; // <— add this
 
 interface Span {
   text: string;
@@ -10,6 +11,7 @@ interface Span {
   semantic_type?: string;
   confidence?: number;
   expanded?: string;
+  medlineplus?: { title?: string; url?: string; summary?: string };
 }
 
 export default function App() {
@@ -19,6 +21,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [spans, setSpans] = useState<Span[]>([]);
   const [info, setInfo] = useState<Span | null>(null);
+  const [mp, setMp] = useState<{ title?: string; url?: string; summary?: string } | null>(null);
+  const [mpLoading, setMpLoading] = useState(false);
 
   async function onExplain() {
     try {
@@ -28,69 +32,163 @@ export default function App() {
       setSpans(data.spans || []);
     } catch (e: any) {
       setError(e.message || "Request failed");
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
 
-  const highlighted = useMemo(() => renderHighlighted(text, spans, setInfo), [text, spans]);
+  const highlighted = useMemo(
+    () => renderHighlighted(text, spans, async (s: Span) => {
+      setInfo(s);
+      setMp(null);
+      setMpLoading(true);
+      try {
+        const term = (s.expanded || s.text || "").trim();
+        if (term) {
+          const resp = await searchTerm(term);
+          setMp(resp.result || null);
+        }
+      } finally {
+        setMpLoading(false);
+      }
+    }),
+    [text, spans]
+  );
+
 
   return (
-    <div style={{ maxWidth: 1100, margin: "0 auto", padding: 16, fontFamily: "Inter, system-ui, Arial" }}>
-      <h2>Medical Jargon Extractor — MVP</h2>
-      <p style={{ color: "#555" }}>Paste text or upload a .txt/.docx, click <b>Extract</b>, and we’ll highlight medical terms. Click a highlight to see details.</p>
-
-      <label style={{ display: "block", marginTop: 8 }}>Paste text</label>
-      <textarea
-        rows={8}
-        value={text}
-        onChange={(e) => { setText(e.target.value); setFile(null); }}
-        placeholder="Pt c/o cp x2d. Hx of HTN. Troponin WNL. R/o PE. Denies SOB today."
-        style={{ width: "100%", padding: 8, fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas" }}
-      />
-
-      <div style={{ margin: "12px 0" }}>
-        <input type="file" accept=".txt,.docx" onChange={e => setFile(e.target.files?.[0] || null)} />
-      </div>
-
-      <button onClick={onExplain} disabled={loading} style={{ padding: "8px 14px" }}>
-        {loading ? "Extracting…" : "Extract"}
-      </button>
-
-      {error && <div style={{ color: "#b91c1c", marginTop: 12 }}>{error}</div>}
-
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16, marginTop: 16 }}>
-        <div>
-          <h3>Document</h3>
-          <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 12, minHeight: 180 }}>
-            {highlighted}
+    <div className="app">
+      <div className="container">
+        {/* Header */}
+        <div className="header">
+          <div className="brand">
+            <div className="logo">MeD</div>
+            <div>
+              <div style={{ fontWeight: 800 }}>MeDicT</div>
+              <div className="subtitle">Medical Dictionary</div>
+            </div>
           </div>
+          <a className="link" href="" target="_blank" rel="noreferrer">MeDicT</a>
         </div>
-        <div>
-          <h3>Details</h3>
-          <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 12, minHeight: 180 }}>
-            {info ? (
-              <div>
-                <div><b>Term:</b> {info.text}</div>
-                {info.expanded && <div><b>Expanded:</b> {info.expanded}</div>}
-                {info.semantic_type && <div><b>Type:</b> {info.semantic_type}</div>}
-                {info.concept_id && <div><b>Concept:</b> {info.concept_id}</div>}
-                {typeof info.confidence === "number" && <div><b>Confidence:</b> {(info.confidence*100).toFixed(0)}%</div>}
-                <div style={{ marginTop: 6, color: "#6b7280", fontSize: 12 }}>
-                  start={info.start}, end={info.end}, source={info.match_type}
-                </div>
+
+        {/* Grid */}
+        <div className="grid">
+          {/* Left column */}
+          <div>
+            <div className="card">
+              <div className="card-title">Input</div>
+              {/* <div className="tabs">
+                <button className="tab active" disabled>Paste text</button>
+              </div> */}
+
+              <label style={{ display: "block", marginTop: 8 }}>Input field</label>
+              <textarea
+                rows={8}
+                value={text}
+                onChange={(e) => { setText(e.target.value); setFile(null); }}
+                placeholder="Enter your text"
+                className="textarea"
+              />
+
+              <div style={{ margin: "12px 0" }}>
+                <input type="file" accept=".txt,.docx" onChange={e => setFile(e.target.files?.[0] || null)} />
+                <div className="input-hint">Accepted: .txt, .docx</div>
+                {/* {file && <div className="file-tag">Selected: {file.name}</div>} */}
               </div>
-            ) : (
-              <div style={{ color: "#6b7280" }}>Click a highlighted term to see details here.</div>
-            )}
+
+              <div className="btn-row">
+                <button onClick={onExplain} disabled={loading} className="btn btn-primary">
+                  {loading ? <>Extracting <span className="spinner" /></> : "Extract & Highlight"}
+                </button>
+                <button
+                  onClick={() => { setText(""); setFile(null); setSpans([]); setInfo(null); setError(null); }}
+                  disabled={loading}
+                  className="btn btn-ghost"
+                >
+                  Clear
+                </button>
+              </div>
+
+              {error && <div className="error">{error}</div>}
+            </div>
+
+            <div className="card">
+              <div className="card-title">Output</div>
+              <div className="docbox">
+                {loading ? <SkeletonLines lines={6} /> : highlighted}
+              </div>
+            </div>
+          </div>
+
+          {/* Right column */}
+          <div>
+            <div className="card">
+              <div className="card-title">Details</div>
+              {!info ? (
+                <div className="subtitle">Click a highlighted term to see details here.</div>
+              ) : (
+                <div>
+                  <div className="term-row">
+                    <span className="term">{info.text}</span>
+                  </div>
+
+                  <div className="meta">
+                    {/* {!!info.semantic_type && <span><b>Type:</b> {info.semantic_type} &nbsp; </span>} */}
+                    {/* {typeof info.confidence === "number" && <span><b>Confidence:</b> {(info.confidence * 100).toFixed(0)}%</span>} */}
+                  </div>
+
+                  <div style={{ marginTop: 12 }}>
+                    {mpLoading ? (
+                      <SkeletonLines lines={3} />
+                    ) : mp ? (
+                      <>
+                        <div className="kv">
+                          <span className="kv-label">Title:</span>
+                          <span className="kv-value">{mp.title || "—"}</span>
+                        </div>
+
+                        {mp.summary && (
+                          <div style={{ color: "var(--muted-2)" }}>{mp.summary}</div>
+                        )}
+
+                        {mp.url && (
+                          <div style={{ marginTop: 6 }}>
+                            <a className="link" href={mp.url} target="_blank" rel="noreferrer">
+                              Learn more →
+                            </a>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="subtitle">No explanation found for this term.</div>
+                    )}
+                  </div>
+
+                </div>
+              )}
+            </div>
+
           </div>
         </div>
+
       </div>
     </div>
   );
 }
 
-function renderHighlighted(text: string, spans: Span[], onPick: (s: Span) => void) {
+function SkeletonLines({ lines = 3 }: { lines?: number }) {
+  return (
+    <div>
+      {Array.from({ length: lines }).map((_, i) => (
+        <div key={i} className="skel-line" />
+      ))}
+    </div>
+  );
+}
+
+function renderHighlighted(
+  text: string,
+  spans: Span[],
+  onPick: (s: Span) => void | Promise<void>   // allow async
+) {
   if (!text) return <div />;
   const parts: React.ReactNode[] = [];
   let cursor = 0;
@@ -100,9 +198,9 @@ function renderHighlighted(text: string, spans: Span[], onPick: (s: Span) => voi
     parts.push(
       <mark
         key={`m${i}`}
-        style={{ background: "#fde68a", padding: "0 2px", borderRadius: 3, cursor: "pointer" }}
+        className="jargon"
         onClick={() => onPick(s)}
-        title={`${s.text}${s.expanded ? ` → ${s.expanded}` : ''}`}
+        title={`${s.text}${s.expanded ? ` → ${s.expanded}` : ""}`}
       >
         {text.slice(s.start, s.end)}
       </mark>
@@ -112,20 +210,3 @@ function renderHighlighted(text: string, spans: Span[], onPick: (s: Span) => voi
   if (cursor < text.length) parts.push(<span key="tail">{text.slice(cursor)}</span>);
   return <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{parts}</div>;
 }
-
-// 1. Start backend (`uvicorn` on :8000), then start frontend (`vite` on :5173).
-// 2. Paste: `Pt c/o cp x2d. Hx of HTN. Troponin WNL. R/o PE. Denies SOB today.`
-// 3. Click **Extract** → you should see highlights for terms in the seed dictionary.
-// 4. Click a highlight → details appear in the right pane.
-
-// ---
-
-// ## 5) Next steps (when you’re ready)
-
-// * Expand **TERM_DICT** (or load from a JSON/CSV) and add an **acronym detector** using document-local mappings.
-// * Plug in **scispaCy NER** to boost recall and a simple **overlap merger** (we already have a basic one).
-// * Add a **/translate** endpoint calling your AI model and include `plain_definition` per span to show in the popup.
-// * Support **PDF** via `pymupdf`/`pdfplumber` and basic OCR for scanned docs.
-// * Replace inline styles with Tailwind/shadcn for a polished look.
-
-// That’s it—this is a clean foundation you can run right now and iterate on. ✅
